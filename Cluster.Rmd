@@ -1,0 +1,1106 @@
+# Cluster
+
+# Limpieza
+
+## Librerias
+
+```{r}
+
+library(tidyverse)
+library(fastDummies)
+library(FactoMineR)
+library(factoextra)
+library(cluster)
+library(dendextend)
+library(caret)
+library(reticulate)
+library(htmltools)
+library(IRdisplay)
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+library(psych)
+library(ggcorrplot)
+library(janitor)
+library(summarytools)
+library(broom)
+library(readxl)
+library(cowplot)
+library(reticulate)
+
+```
+
+## Funciones
+
+```{r}
+
+inercia_intraclase <- function(datos, grupos) {
+  # Combina los datos y los grupos en una sola tabla
+  tabla <- cbind(datos, grupos)
+
+  # Calcula los centroides (puntos medios) de cada grupo
+  centroides <- lapply(unique(grupos), function(id_grupo) {
+    subconjunto <- subset(tabla, grupos == id_grupo)
+    apply(subconjunto[, 1:(ncol(subconjunto)-1)], 2, mean)
+  })
+
+  # Calcula la suma de las distancias al cuadrado de cada punto a su centroide
+  suma_cuadrados <- sum(sapply(unique(grupos), function(id_grupo) {
+    subconjunto <- subset(tabla, grupos == id_grupo, select = -grupos)
+    centroide_actual <- centroides[[id_grupo]]
+
+    # Resta el centroide a cada punto y calcula la suma de cuadrados
+    sum(sweep(subconjunto, 2, centroide_actual, "-")^2)
+  }))
+
+  return(suma_cuadrados)
+}
+
+```
+
+```{r}
+
+options(tibble.width = Inf)
+
+```
+
+```{r}
+
+datos_crudos <- read_excel("Datos.xlsx")
+
+```
+
+```{r}
+
+head(datos_crudos)
+
+```
+
+## Limpiar datos
+
+```{r}
+
+# Asumiendo que tus datos originales están en el dataframe "mis_datos"
+df <- datos_crudos %>%
+  rename(
+
+    fecha = `Marca temporal`,
+    salud_fisica = `1. Mi salud física afecta mi estado de ánimo.`,
+    maltrato_emocional = `2. Durante la niñez y adolescencia, viví experiencias en las que fui maltratado o humillado emocionalmente.`,
+    castigo_fisico = `3. Durante la niñez y adolescencia, recibí castigos físicos o golpes que me causaron daño o miedo.`,
+    abuso_sexual = `4. Durante la niñez y adolescencia, fui víctima de contacto sexual forzado o inapropiado por parte de alguien mayor.`,
+    ocultar_emociones = `5. Siento que debo ocultar mis emociones para no parecer débil.`,
+    dificultad_pedir_ayuda = `6. Me cuesta pedir ayuda cuando enfrento una dificultad.`,
+    guarda_sentimientos = `7. Cuando estoy triste o dolido, prefiero guardármelo para mí.`,
+
+    # Sección 2: Frecuencia en los últimos 7 días
+    sin_motivacion = `1. ¿Cuántas veces en los últimos 7 días, me he sentido sin motivación para realizar mis actividades?`,
+    preocupado = `2. ¿Cuántas veces en los últimos 7 días, me he sentido preocupado?`,
+    sin_proposito = `3. ¿Cuántas veces en los últimos 7 días, he sentido que la vida ha perdido su sentido y propósito?`,
+    no_reconocer_logros = `4. ¿Cuántas veces en los últimos 7 días, me ha costado reconocer mis logros y aspectos positivos?`,
+    incapaz_solucionar = `5. ¿Cuántas veces en los últimos 7 días, he pensado que soy incapaz de encontrar una solución a mis problemas?`,
+    intento_autolesion = `6. ¿Cuántas veces en los últimos 7 días, he intentado hacerme daño?`,
+    plan_autolesion = `7. ¿Cuántas veces en los últimos 7 días, he hecho planes para hacerme daño?`,
+    autolesion_fisica = `8. ¿Cuántas veces en los últimos 7 días, me he hecho daño físico de manera intencional (por ejemplo, cortarme, golpearme o provocarme dolor)?`,
+    conduccion_temeraria = `9. ¿Cuántas veces en los últimos 7 días, he conducido de manera arriesgada o sin cuidado por mi seguridad?`,
+    soledad = `10. ¿Cuántas veces en los últimos 7 días, me he sentido solo o sin apoyo?`,
+    conflicto_familiar = `11. ¿Cuántas veces en los últimos 7 días, he tenido conflictos o discusiones en mi familia?`,
+    dificultad_economica = `12. ¿Cuántas veces en los últimos 7 días, he tenido dificultades económicas que me preocupan?`,
+    exigencia_academica_laboral = `13. ¿Cuántas veces en los últimos 7 días, tuve muchas exigencias académicas o laborales`,
+    descontrol_drogas = `14. ¿Cuántas veces en los últimos 7 días, he sentido que pierdo el control al consumir algunas drogas?`,
+    abuso_alcohol = `15.  ¿Cuántas veces en los últimos 7 días, he abusado del consumo de bebidas alcohólicas?`,
+    descontrol_enojo = `16. ¿Cuántas veces en los últimos 7 días, cuando me enojo o me altero, siento que pierdo el control de mis reacciones?`,
+
+    # Sección 3: Historial y situación actual (Sí/No)
+    medicamento_psiquiatrico = `1. Alguna vez en mi vida he tomado medicamentos psiquiátricos (ansiolíticos, antidepresivos, etc.)`,
+    discapacidad_fisica = `2. Tengo alguna discapacidad física (por ejemplo, pérdida de audición o amputación)`,
+    suicidio_familiar = `3. ¿Alguna persona de mi familia ha intentado quitarse la vida o se ha suicidado?`,
+    ruptura_reciente = `4. En el último mes, he pasado por una ruptura o separación de pareja que me ha impactado emocionalmente.`,
+    crisis_pareja_actual = `5. Actualmente estoy pasando por una crisis en mi relación de pareja.`,
+    medidas_cautelares = `6. Tengo vigentes medidas cautelares por violencia doméstica u otras razones legales.`,
+
+    # Sección 4: Ideación (Escala)
+    roberts_pensado_muerte = `1. Pensé en la muerte.`,
+    roberts_mejor_sin_mi = `2. Mi familia y mis amigos estarían mejor si yo estuviera muerto.`,
+    roberts_pensado_matarme = `3. Pensé en matarme.`,
+    roberts_plan_suicida = `4. Me mataría si encontrara o tuviera la manera de hacerlo.`,
+
+    # Sección 5: Datos demográficos y de grupo
+    edad = `1. Edad (número de años cumplidos)`,
+    escolaridad = `2. Grado de escolaridad`,
+    estado_civil = `3. Estado civil`,
+    ocupacion = `4. Ocupación`,
+    orientacion_sexual = `5. Orientación sexual`,
+    provincia = `6. Provincia donde vive`,
+    canton = `7. Cantón donde vive`,
+    grupo_wem = `Grupo al que asiste de Wem`,
+    sesiones_cumplidas = `Cantidad de sesiones cumplidas (en número)`,
+    dia = `Día de la semana al que más asiste al grupo`
+  )
+
+```
+
+```{r}
+
+print(df, n = 20, width = Inf)
+
+```
+
+```{r}
+
+# 1. Definir los grupos de variables para cada tipo de recodificación
+vars_freq <- c(
+  'salud_fisica', 'maltrato_emocional', 'castigo_fisico', 'abuso_sexual',
+  'ocultar_emociones', 'dificultad_pedir_ayuda', 'guarda_sentimientos'
+)
+
+vars_dias <- c(
+  'sin_motivacion', 'preocupado', 'sin_proposito', 'no_reconocer_logros',
+  'incapaz_solucionar', 'intento_autolesion', 'plan_autolesion', 'autolesion_fisica',
+  'conduccion_temeraria', 'soledad', 'conflicto_familiar', 'dificultad_economica',
+  'exigencia_academica_laboral', 'descontrol_drogas', 'abuso_alcohol', 'descontrol_enojo'
+)
+
+vars_roberts <- c(
+  'roberts_pensado_muerte', 'roberts_mejor_sin_mi',
+  'roberts_pensado_matarme', 'roberts_plan_suicida'
+)
+
+# 2. Aplicar la recodificación usando mutate() y across()
+df <- df %>%
+  mutate(
+    # Recodificación para la Sección 2 (Escala de Frecuencia General)
+    across(all_of(vars_freq), ~case_when(
+      . == "Nunca"         ~ 0,
+      . == "Casi nunca"    ~ 1,
+      . == "Rara vez"      ~ 2,
+      . == "A veces"       ~ 3,
+      . == "Con frecuencia"~ 4,
+      . == "Casi siempre"  ~ 5,
+      . == "Siempre"       ~ 6,
+      TRUE                ~ NA_real_ # Por si hay algún valor inesperado
+    )),
+
+    # Recodificación para la Sección 3 (Frecuencia en los últimos 7 días)
+    across(all_of(vars_dias), ~case_when(
+      . == "Nunca"         ~ 0,
+      . == "1 - 2 días"    ~ 1,
+      . == "3 días"        ~ 2,
+      . == "4 días"        ~ 3,
+      . == "5 días"        ~ 4,
+      . == "6 días"        ~ 5,
+      . == "Todos los días"~ 6,
+      TRUE                ~ NA_real_
+    )),
+
+    # Recodificación para la Sección 5 (Escala Roberts - Frecuencia en la última semana)
+    across(all_of(vars_roberts), ~case_when(
+      . == "0 días"       ~ 0,
+      . == "1-2 días"      ~ 1,
+      . == "3-4 días"      ~ 2,
+      . == "5-7 días"      ~ 3,
+      TRUE                ~ NA_real_
+    ))
+  )
+
+```
+
+```{r}
+
+df <- df %>%
+  mutate(
+    EIS_Roberts = rowSums(select(., all_of(vars_roberts)), na.rm = TRUE)
+  )
+
+```
+
+```{r}
+
+df <- df %>%
+  mutate(
+    EIS_Cat = case_when(
+      EIS_Roberts <= 5          ~ "Bajo",
+      EIS_Roberts >= 6 & EIS_Roberts <= 8 ~ "Medio",
+      EIS_Roberts >= 9          ~ "Alto",
+      TRUE                      ~ NA_character_ # Manejo de casos inesperados (como NAs)
+    )
+  )
+
+```
+
+```{r}
+
+df <- df %>%
+  mutate(across(where(is.character), as.factor))
+
+```
+
+## Prueba alternativa
+
+```{r}
+
+#df <- df %>%
+#  filter(sesiones_cumplidas < 45)
+
+```
+
+```{r}
+
+str(df)
+
+```
+
+## Estandarizar
+
+```{r}
+
+# 1. Definir las variables individuales de Roberts que vamos a excluir
+vars_roberts_individuales <- c(
+  'roberts_pensado_muerte', 'roberts_mejor_sin_mi',
+  'roberts_pensado_matarme', 'roberts_plan_suicida'
+)
+
+# 2. Seleccionar el conjunto final de variables para el clúster
+#    Excluimos la fecha y los ítems individuales de Roberts.
+#    Ahora SÍ mantenemos EIS_Roberts y EIS_Cat.
+df_para_cluster <- df %>%
+  select(
+    -fecha,
+    -canton,
+    -provincia,
+    -grupo_wem,
+    -dia,
+    -all_of(vars_roberts_individuales)
+  )
+
+# 3. Identificar las columnas numéricas y factores en este nuevo conjunto
+#    'EIS_Roberts' se tratará como numérica y 'EIS_Cat' como factor.
+vars_numericas <- df_para_cluster %>%
+  select(where(is.numeric)) %>%
+  names()
+
+vars_factores <- df_para_cluster %>%
+  select(where(is.factor)) %>%
+  names()
+
+# 4. Crear variables dummy a partir de TODOS los factores (incluyendo EIS_Cat)
+df_dummies <- dummy_cols(
+  df_para_cluster,
+  select_columns = vars_factores,
+  remove_selected_columns = TRUE) # Elimina las columnas factor originales
+
+```
+
+```{r}
+
+# 5. Aislar y escalar TODAS las variables numéricas (incluyendo EIS_Roberts)
+datos_numericos <- df_para_cluster %>% select(all_of(vars_numericas))
+datos_escalados <- as.data.frame(scale(datos_numericos))
+
+# 6. Unir los datos numéricos escalados con las nuevas variables dummy
+#    Primero, nos quedamos solo con las columnas dummy que se crearon
+df_dummies_solo <- df_dummies %>% select(-all_of(vars_numericas))
+
+#    Finalmente, los unimos
+df_escalado <- bind_cols(datos_escalados, df_dummies_solo)
+
+```
+
+```{r}
+
+df_escalado <- df_escalado %>%
+  rename(
+    # Escolaridad
+    posgrado = `escolaridad_Posgrado (Maestría / Doctorado)`,
+    sec_completa = `escolaridad_Secundaria completa`,
+    sec_incompleta = `escolaridad_Secundaria incompleta`,
+    tecnico = `escolaridad_Técnico medio / Diplomado`,
+    u_completo = `escolaridad_Universitario completo`,
+    u_incompleto = `escolaridad_Universitario incompleto`,
+
+    # Estado Civil
+    casado = `estado_civil_Casado`,
+    divorciado = `estado_civil_Divorciado`,
+    separado = `estado_civil_Separado`,
+    soltero = `estado_civil_Soltero`,
+    union_libre = `estado_civil_Unión libre`,
+
+    # Ocupación
+    desempleado = `ocupacion_Desempleado`,
+    asalariado = `ocupacion_Trabajador asalariado`,
+    independiente = `ocupacion_Trabajador independiente`,
+
+    # Orientación Sexual
+    heterosexual = `orientacion_sexual_Heterosexual`,
+    sexualidad_otra = `orientacion_sexual_Otra`,
+
+    # EIS Categórico
+    EIS_alto = `EIS_Cat_Alto`,
+    EIS_bajo = `EIS_Cat_Bajo`,
+    EIS_medio = EIS_Cat_Medio
+  )
+
+```
+
+```{r}
+
+glimpse(df_escalado)
+
+```
+
+## ACP
+
+### Modelo con todas las variables
+
+```{r}
+
+modelo_ACP <- PCA(df_escalado,   #se corre el modelo con PCA
+              scale.unit = FALSE,    #Escalar los datos
+              ncp = 3,           #Número de componentes principales
+              graph = FALSE)
+
+```
+
+### Plano principal (individuos)
+
+```{r}
+
+fviz_pca_ind(X = modelo_ACP, pointsize = 3,
+             pointshape = 21,
+             axes = c(1,3), #Primeras dos componentes
+             select.ind = list(cos2 = 0.1),
+             alpha.ind = 0.8,
+             fill = "#FF8C32", repel = TRUE)
+
+```
+
+### Circulo de correlaciones (variables)
+
+```{r}
+
+plot(x = modelo_ACP, axes = c(1, 2), # primeras dos componentes
+     choix = "var", col.var = "#2E9FDF",
+     select.ind = list(cos2 = 0.1),
+     new.plot = TRUE)
+
+```
+
+### Biplot
+
+```{r}
+
+fviz_pca_biplot(modelo_ACP,
+                pointsize = 4,
+                axes = c(1,2), #Primeras dos componentes
+                col.var = "#2E9FDF", #Color de la variable
+                col.ind = "#FF8C32", #Color de los individuos
+                select.var = list(cos2 = 0.1), #Extracción de variables mal representadas
+                select.ind = list(cos2 = 0.1)) #Extracción de individuos mal representados
+
+```
+
+### Modelo con solo variables numericas y EIS
+
+```{r}
+
+# 2. Vector de variables con los NOMBRES CORRECTOS
+variables_seleccionadas <- c(
+  'salud_fisica', 'maltrato_emocional', 'castigo_fisico', 'abuso_sexual',
+  'ocultar_emociones', 'dificultad_pedir_ayuda', 'guarda_sentimientos',
+  'sin_motivacion', 'preocupado', 'sin_proposito', 'no_reconocer_logros',
+  'incapaz_solucionar', 'intento_autolesion', 'plan_autolesion', 'autolesion_fisica',
+  'conduccion_temeraria', 'soledad', 'conflicto_familiar', 'dificultad_economica',
+  'exigencia_academica_laboral', 'descontrol_drogas', 'abuso_alcohol',
+  'descontrol_enojo', 'edad', 'sesiones_cumplidas', "EIS_Roberts",
+  'EIS_alto',
+  'EIS_medio',
+  'EIS_bajo'
+)
+
+# Crear el nuevo dataframe
+df_seleccionado <- df_escalado %>%
+  select(all_of(variables_seleccionadas))
+
+
+# 3. Realizar el Análisis de Componentes Principales (ACP)
+resultado_acp <- prcomp(df_seleccionado, scale. = FALSE)
+
+
+# 4. Crear el Círculo de Correlaciones
+grafico_correlaciones <- fviz_pca_var(
+  resultado_acp,
+  axes = c(1, 2),
+  col.var = "contrib",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE,
+  title = "Círculo de Correlaciones ACP"
+)
+
+# 5. Mostrar el gráfico
+print(grafico_correlaciones)
+
+```
+
+```{r}
+
+# 4. Crear el Círculo de Correlaciones
+grafico_correlaciones <- fviz_pca_var(
+  resultado_acp,
+  axes = c(1, 3),
+  col.var = "contrib",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE,
+  title = "Círculo de Correlaciones ACP"
+)
+
+# 5. Mostrar el gráfico
+print(grafico_correlaciones)
+
+```
+
+```{r}
+
+# 3. Crear el biplot con los individuos en color naranja
+grafico_biplot_naranja <- fviz_pca_biplot(
+  resultado_acp,
+  geom.ind = "point",
+  col.ind = "tomato",  # <-- Aquí especificamos el color para los individuos
+  alpha.ind = 0.5,     # Mantenemos la transparencia para ver la densidad
+  repel = TRUE,        # Evita que las etiquetas de las variables se solapen
+  title = "Biplot ACP (Individuos y Variables)"
+)
+
+# 4. Mostrar el gráfico
+print(grafico_biplot_naranja)
+
+```
+
+```{r}
+
+# 3. Crear el biplot con los individuos en color naranja
+grafico_biplot_naranja <- fviz_pca_biplot(
+  resultado_acp,
+  axes = c(1,3),
+  geom.ind = "point",
+  col.ind = "tomato",  # <-- Aquí especificamos el color para los individuos
+  alpha.ind = 0.5,     # Mantenemos la transparencia para ver la densidad
+  repel = TRUE,        # Evita que las etiquetas de las variables se solapen
+  title = "Biplot ACP (Individuos y Variables)"
+)
+
+# 4. Mostrar el gráfico
+print(grafico_biplot_naranja)
+
+```
+
+
+### Metodo del codo
+
+```{r}
+
+# Calcular y visualizar el número óptimo de clústeres con el método del codo
+fviz_nbclust(df_escalado,
+             FUNcluster = hcut,  # Especifica que usamos clustering jerárquico
+             method = "wss") +   # "wss" es la inercia intraclase
+  geom_vline(xintercept = 3, linetype = 2) + # Línea sugerida en el codo (ajusta este número)
+  labs(subtitle = "Método del Codo (Elbow Method)")
+
+```
+
+### Silueta
+
+```{r}
+
+fviz_nbclust(df_escalado,
+             FUNcluster = hcut,
+             method = "silhouette") +
+  labs(subtitle = "Análisis de Silueta para Clustering Jerárquico")
+
+```
+# Cluster Jerarquico
+
+Hclust: Grupos mas homogeneos
+
+```{r}
+
+distancias_hclust <- c("euclidean", "maximum", "manhattan", "canberra", "binary", "minkowski")
+agregaciones_hclust <- c("ward.D", "ward.D2", "single", "complete", "average", "mcquitty", "median", "centroid")
+
+```
+
+Datra frame vacio para guardar los datos
+
+```{r}
+
+resultados_hclust <- data.frame(
+  metodo_distancia = character(),
+  metodo_agregacion = character(),
+  inercia = numeric(),
+  stringsAsFactors = FALSE
+)
+
+```
+
+**Ciclo for** para ver cuál es el mejor modelo.
+
+```{r}
+
+# 5. Bucle para probar cada combinación
+for (distancia in distancias_hclust) {
+  try({
+    matriz_distancia <- dist(df_escalado, method = distancia)
+
+    for (agregacion in agregaciones_hclust) {
+      # Evitar combinaciones inválidas
+      if ((agregacion %in% c("ward.D", "ward.D2", "centroid", "median")) && (distancia != "euclidean")) {
+        next
+      }
+
+      # Construir el modelo y cortar el árbol en k=3 clústeres
+      modelo <- hclust(matriz_distancia, method = agregacion)
+      grupos <- cutree(modelo, k = 3)
+
+      # Calcular la inercia y guardarla
+      inercia_actual <- inercia_intraclase(df_escalado, grupos)
+
+      resultados_hclust <- resultados_hclust %>%
+        add_row(
+          metodo_distancia = distancia,
+          metodo_agregacion = agregacion,
+          inercia = inercia_actual
+        )
+    }
+  }, silent = TRUE)
+}
+
+```
+
+```{r}
+
+mejores_hclust <- resultados_hclust %>% arrange(inercia)
+print("--- Ranking de HCLUST (menor inercia es mejor) ---")
+print(mejores_hclust)
+
+```
+
+## Visualizacion
+
+```{r}
+
+dist_euclidean <- dist(df_escalado, method = "euclidean")
+hclust_ward <- hclust(dist_euclidean, method = "ward.D2")
+
+dend_obj <- as.dendrogram(hclust_ward)
+color_dend <- color_branches(dend_obj, h = 25,
+                             groupLabels =TRUE)
+plot(color_dend)
+
+```
+
+Agnes: Escrutura mas natual y clara
+
+```{r}
+
+distancias_agnes <- c("euclidean", "manhattan") # agnes es más sensible a algunas distancias
+agregaciones_agnes <- c("ward", "single", "complete", "average")
+
+```
+
+Crear df para guardar resultados
+
+```{r}
+
+resultados_agnes <- data.frame(
+  metodo_distancia = character(),
+  metodo_agregacion = character(),
+  coeficiente_aglomerativo = numeric(),
+  stringsAsFactors = FALSE
+)
+
+```
+
+Crear **ciclo for**
+
+```{r}
+
+for (distancia in distancias_agnes) {
+  try({
+    matriz_distancia <- dist(df_escalado, method = distancia)
+
+    for (agregacion in agregaciones_agnes) {
+      # Evitar combinaciones inválidas
+      if (agregacion == "ward" && distancia != "euclidean") {
+        next
+      }
+
+      # Construir el modelo con agnes
+      modelo <- agnes(matriz_distancia, method = agregacion)
+
+      # Guardar el Coeficiente Aglomerativo
+      resultados_agnes <- resultados_agnes %>%
+        add_row(
+          metodo_distancia = distancia,
+          metodo_agregacion = agregacion,
+          coeficiente_aglomerativo = modelo$ac
+        )
+    }
+  }, silent = TRUE)
+}
+
+```
+
+```{r}
+
+mejores_agnes <- resultados_agnes %>% arrange(desc(coeficiente_aglomerativo))
+print("--- Ranking de AGNES (mayor coeficiente es mejor) ---")
+print(mejores_agnes)
+
+```
+
+Visualizacion
+
+```{r}
+
+# dist_euclidean <- dist(df_escalado, method = "euclidean")
+# hclust_complete <- hclust(dist_manhattan, method = "ward.D2")
+
+# dend_obj <- as.dendrogram(hclust_complete)
+# color_dend <- color_branches(dend_obj, h = 34,
+                             # groupLabels =TRUE)
+# plot(color_dend)
+
+```
+
+## Visualizacion con python
+
+```{python}
+
+# 2. Configurar la ruta de Python
+
+# use_python("/usr/bin/python3")
+use_python("C:/Python39/python.exe")   # Windows
+
+# 3. Preparar las variables de R
+dist_final <- dist(df_escalado, method = "euclidean")
+modelo_final_hclust <- hclust(dist_final, method = "ward.D2")
+grupos_cluster <- cutree(modelo_final_hclust, k = 3)
+
+# 4. Ejecutar el bloque de código de Python para CREAR el HTML del gráfico
+py_run_string(r"(
+# Importar librerías
+import pandas as pd
+from sklearn.decomposition import PCA
+import plotly.express as px
+
+# Acceder a los objetos de R
+df_python = r.df_escalado
+clusters_r = r.grupos_cluster
+
+# Realizar ACP
+pca = PCA(n_components=3)
+componentes = pca.fit_transform(df_python)
+
+# Crear dataframe con los componentes y clústeres
+df_pca = pd.DataFrame(
+    data=componentes,
+    columns=['Componente Principal 1', 'Componente Principal 2', 'Componente Principal 3']
+)
+df_pca['cluster'] = clusters_r
+df_pca['cluster'] = df_pca['cluster'].astype(str)
+
+# Crear el objeto del gráfico
+fig = px.scatter_3d(
+    df_pca,
+    x='Componente Principal 1',
+    y='Componente Principal 2',
+    z='Componente Principal 3',
+    color='cluster',
+    title='Análisis de Clústeres en 3D (con Python)',
+    labels={'cluster': 'Clúster'}
+)
+
+# NO USAMOS fig.show(). En su lugar, convertimos el gráfico a HTML.
+# Esta variable 'grafico_html_str' estará disponible en R.
+grafico_html_str = fig.to_html()
+)")
+
+# 5. En R, acceder al HTML creado por Python y mostrarlo
+#    py$grafico_html_str trae la variable de Python a R.
+#    display_html() la renderiza en Colab.
+display_html(py$grafico_html_str)
+
+```
+
+
+## AFC
+
+```{r}
+
+df <- df %>%
+  mutate(
+    EIS_Cat = case_when(
+      EIS_Roberts <= 5          ~ "Bajo",
+      EIS_Roberts >= 6 & EIS_Roberts <= 8 ~ "Medio",
+      EIS_Roberts >= 9          ~ "Alto",
+      TRUE                      ~ NA_character_ # Manejo de casos inesperados (como NAs)
+    )
+  )
+
+```
+
+
+```{r}
+
+df_categoricas <- df[, c("medicamento_psiquiatrico", "discapacidad_fisica",
+                         "suicidio_familiar","ruptura_reciente", "crisis_pareja_actual",
+                         "medidas_cautelares","estado_civil","EIS_Cat")]
+
+```
+
+```{r}
+
+columnas_a_factor <- c(
+  "medicamento_psiquiatrico_No", "medicamento_psiquiatrico_Sí",
+  "discapacidad_fisica_No", "discapacidad_fisica_Sí",
+  "suicidio_familiar_No", "suicidio_familiar_Sí",
+  "ruptura_reciente_No", "ruptura_reciente_Sí",
+  "crisis_pareja_actual_No", "crisis_pareja_actual_Sí",
+  "medidas_cautelares_No",
+  "posgrado", "sec_completa", "sec_incompleta", "tecnico",
+  "u_completo", "u_incompleto",
+  "casado", "divorciado", "separado", "soltero", "union_libre",
+  "desempleado", "asalariado", "independiente",
+  "heterosexual", "sexualidad_otra",
+  "EIS_alto", "EIS_medio", "EIS_bajo"
+)
+
+# 2. Extraer las columnas y convertirlas a factor en un nuevo data frame
+# Asegúrate de que los nombres en el vector coincidan exactamente con tu data frame
+df_factores <- df_escalado %>%
+  select(all_of(columnas_a_factor)) %>%
+  mutate(across(everything(), as.factor))
+
+# 3. (Opcional) Verificar que la conversión fue exitosa
+# Deberías ver que todas las columnas en df_factores son de tipo 'Factor'
+str(df_factores)
+
+```
+
+```{r}
+
+AFC <- MCA(df_categoricas, graph = FALSE)
+
+```
+
+```{r}
+
+fviz_screeplot(AFC, addlabels = TRUE, ylim = c(0, 50))
+
+```
+
+```{r}
+
+fviz_mca_var(AFC, repel = TRUE,
+             cex.var = 6,   # Aumenta el tamaño de los puntos
+             labelsize = 2,
+             ggtheme = theme_minimal())
+
+```
+
+## Misc
+
+```{r}
+
+# 2. Ejecutar el bloque de código de Python para CREAR el HTML del gráfico
+py_run_string(r"(
+# Importar librerías
+import pandas as pd
+from sklearn.decomposition import PCA
+import plotly.graph_objects as go
+
+# Acceder al dataframe escalado de R
+df_python = r.df_seleccionado
+
+# Realizar ACP
+pca = PCA(n_components=3)
+pca.fit(df_python)
+
+# Obtener los "loadings"
+loadings = pca.components_.T
+variable_names = df_python.columns
+
+# Crear un DataFrame con los loadings
+df_loadings = pd.DataFrame(
+    loadings,
+    columns=['PC1', 'PC2', 'PC3'],
+    index=variable_names
+)
+
+# --- Crear el gráfico 3D con Plotly Graph Objects ---
+fig = go.Figure()
+
+# 1. AÑADIR LÍNEAS Y TEXTO JUNTOS
+for i, var in enumerate(df_loadings.index):
+    pc1_val = df_loadings['PC1'].iloc[i]
+    pc2_val = df_loadings['PC2'].iloc[i]
+    pc3_val = df_loadings['PC3'].iloc[i]
+
+    # --- LÓGICA DE COLOR Y GROSOR ---
+    # Define tu lista de variables especiales
+    variables_eis = ['EIS_bajo', 'EIS_medio', 'EIS_alto', 'EIS_Roberts']
+
+    # Asigna el color y el grosor basado en si 'var' está en la lista
+    if var in variables_eis:
+        color_vector = 'orange'
+        vector_width = 8  # <-- EL DOBLE DE GRUESO (8)
+    else:
+        color_vector = 'steelblue'
+        vector_width = 4  # <-- GROSOR BASE (4)
+    # ------------------------------------------
+
+    fig.add_trace(go.Scatter3d(
+        x=[0, pc1_val],
+        y=[0, pc2_val],
+        z=[0, pc3_val],
+        mode='lines+text',
+        text=["", var],
+        textposition='middle right',
+
+        # USA LAS VARIABLES DE COLOR Y GROSOR
+        line=dict(color=color_vector, width=vector_width),
+
+        name=var
+    ))
+
+# 3. Configurar el layout (título, ejes, etc.)
+fig.update_layout(
+    title='Círculo de Correlaciones 3D (Haz clic en la leyenda)',
+    scene=dict(
+        xaxis=dict(title='', showticklabels=False),
+        yaxis=dict(title='', showticklabels=False),
+        zaxis=dict(title='', showticklabels=False),
+        aspectmode='data'
+    ),
+    margin=dict(l=0, r=0, b=0, t=40)
+)
+
+# Convertimos el gráfico a HTML.
+grafico_html_str = fig.to_html()
+)")
+
+# 3. En R, acceder al HTML creado por Python y mostrarlo
+display_html(py$grafico_html_str)
+
+```
+
+```{r}
+
+# 2. Ejecutar el bloque de código de Python para CREAR el HTML del gráfico
+py_run_string(r"(
+# Importar librerías
+import pandas as pd
+from sklearn.decomposition import PCA
+import plotly.graph_objects as go
+
+# Acceder al dataframe escalado de R
+df_python = r.df_seleccionado
+
+# Realizar ACP
+pca = PCA(n_components=3)
+scores = pca.fit_transform(df_python) # Obtenemos scores
+loadings = pca.components_.T # Obtenemos loadings
+variable_names = df_python.columns
+
+# Crear un DataFrame con los loadings
+df_loadings = pd.DataFrame(
+    loadings,
+    columns=['PC1', 'PC2', 'PC3'],
+    index=variable_names
+)
+
+# --- ¡MODIFICACIÓN AQUÍ! ---
+# Define un factor de escala. Puedes ajustar este número (p.ej., 5, 10, 20)
+# para hacer los vectores más largos o cortos.
+escala_vector = 10
+# --------------------------
+
+# --- Crear el gráfico 3D con Plotly Graph Objects ---
+fig = go.Figure()
+
+# 1. AÑADIR LÍNEAS Y TEXTO JUNTOS (Vectores de variables)
+for i, var in enumerate(df_loadings.index):
+
+    # --- ¡MODIFICACIÓN AQUÍ! ---
+    # Multiplicamos las coordenadas del vector por el factor de escala
+    pc1_val = df_loadings['PC1'].iloc[i] * escala_vector
+    pc2_val = df_loadings['PC2'].iloc[i] * escala_vector
+    pc3_val = df_loadings['PC3'].iloc[i] * escala_vector
+    # --------------------------
+
+    # --- LÓGICA DE COLOR Y GROSOR (igual) ---
+    variables_eis = ['EIS_bajo', 'EIS_medio', 'EIS_alto', 'EIS_Roberts']
+    if var in variables_eis:
+        color_vector = 'orange'
+        vector_width = 8
+    else:
+        color_vector = 'steelblue'
+        vector_width = 4
+    # ------------------------------------------
+
+    # Esta parte usa los 'pcN_val' que AHORA SÍ están escalados
+    fig.add_trace(go.Scatter3d(
+        x=[0, pc1_val],
+        y=[0, pc2_val],
+        z=[0, pc3_val],
+        mode='lines+text',
+        text=["", var],
+        textposition='middle right',
+        line=dict(color=color_vector, width=vector_width),
+        name=var,
+        legendgroup='variables',
+        showlegend=False
+    ))
+
+# 2. AÑADIR LOS INDIVIDUOS COMO PUNTOS (Esto queda igual)
+fig.add_trace(go.Scatter3d(
+    x=scores[:, 0], # Score PC1 de cada individuo
+    y=scores[:, 1], # Score PC2 de cada individuo
+    z=scores[:, 2], # Score PC3 de cada individuo
+    mode='markers',
+    name='Individuos',
+    marker=dict(
+        size=6,
+        color='red',
+        opacity=0.1
+    )
+))
+
+# 3. Configurar el layout (título, ejes, etc.)
+fig.update_layout(
+    title='Biplot 3D (Vectores Escalados)', # Título actualizado
+    scene=dict(
+        xaxis=dict(title='PC1', showticklabels=True),
+        yaxis=dict(title='PC2', showticklabels=True),
+        zaxis=dict(title='PC3', showticklabels=True),
+        aspectmode='data'
+    ),
+    margin=dict(l=0, r=0, b=0, t=40)
+)
+
+# Convertimos el gráfico a HTML.
+grafico_html_str = fig.to_html()
+)")
+
+# 3. En R, acceder al HTML creado por Python y mostrarlo
+display_html(py$grafico_html_str)
+
+```
+
+```{r}
+
+# --- 1. Definir la variable objetivo ---
+target_var <- "eis_roberts"
+
+# --- 2. Lista de variables a excluir ---
+vars_a_excluir <- c(
+  "roberts_pensado_matarme",
+  "roberts_mejor_sin_mi",
+  "roberts_pensado_muerte",
+  "roberts_plan_suicida"
+)
+
+# --- 3. Encontrar todas las variables numéricas ---
+all_numeric_vars <- names(df)[sapply(df, is.numeric)]
+
+# --- 4. Excluir la variable objetivo Y las variables de la lista ---
+vars_to_correlate <- setdiff(all_numeric_vars, target_var)
+vars_to_correlate <- setdiff(vars_to_correlate, vars_a_excluir) # <- Esta es la línea nueva
+
+# --- 5. Calcular las correlaciones usando sapply ---
+correlations <- sapply(vars_to_correlate, function(var_name) {
+  cor(df[[target_var]], df[[var_name]], use = "pairwise.complete.obs")
+})
+
+# --- 6. Crear el dataframe final ---
+cor_df_filtrado <- data.frame(
+  nombre_variable = names(correlations),
+  correlacion_pearson = correlations,
+  row.names = NULL
+)
+
+# --- 7. Ordenar por la correlación más fuerte ---
+cor_df_filtrado <- cor_df_filtrado[order(abs(cor_df_filtrado$correlacion_pearson), decreasing = TRUE), ]
+
+# --- 8. Ver el resultado ---
+print(cor_df_filtrado)
+
+```
+
+```{r}
+
+# --- 1. Definir listas de variables ---
+# Las 3 variables dummy que son ahora el objetivo
+target_dummies <- c("EIS_bajo", "EIS_medio", "EIS_alto")
+
+# Lista de variables a excluir (basado en solicitudes anteriores)
+vars_a_excluir <- c(
+  "roberts_pensado_matarme",
+  "roberts_mejor_sin_mi",
+  "roberts_pensado_muerte",
+  "roberts_plan_suicida",
+  "eis_roberts"
+)
+
+# --- 2. Identificar variables numéricas a contrastar ---
+# Asume que tu dataframe se llama 'df_escalado'
+all_numeric_vars <- names(df_escalado)[sapply(df_escalado, is.numeric)]
+
+# Filtramos para quedarnos solo con las numéricas que nos interesan
+numeric_vars <- setdiff(all_numeric_vars, c(target_dummies, vars_a_excluir))
+
+# --- 3. Calcular la matriz de correlaciones ---
+# Usamos 'sapply' anidado:
+# El 'sapply' externo itera sobre las variables numéricas
+# El 'sapply' interno itera sobre las 3 dummies para cada variable numérica
+cor_matrix <- sapply(numeric_vars, function(var_num) {
+
+  sapply(target_dummies, function(dummy_name) {
+    cor(df_escalado[[var_num]], df_escalado[[dummy_name]],
+        use = "pairwise.complete.obs")
+  })
+
+})
+
+# --- 4. Transponer y convertir a dataframe ---
+# La matriz resultante está "tumbada", la transponemos (t())
+cor_df_dummies <- as.data.frame(t(cor_matrix))
+
+# --- 5. Limpiar y formatear el dataframe ---
+# Los nombres de las variables están como nombres de fila, los pasamos a una columna
+cor_df_dummies$nombre_variable <- rownames(cor_df_dummies)
+rownames(cor_df_dummies) <- NULL
+
+# Reordenar las columnas para que 'nombre_variable' esté primero
+cor_df_dummies <- cor_df_dummies[, c("nombre_variable", target_dummies)]
+
+# --- 6. Ordenar el dataframe final ---
+# Ordenado por 'EIS_bajo' de mayor a menor.
+# Puedes cambiar 'EIS_bajo' por 'EIS_medio' o 'EIS_alto' si lo prefieres.
+cor_df_ordenado <- cor_df_dummies[
+  order(cor_df_dummies$EIS_bajo, decreasing = TRUE),
+]
+
+# --- 7. Ver el resultado ---
+print( cor_df_ordenado[order(cor_df_ordenado$EIS_medio, decreasing = TRUE) , c("nombre_variable", "EIS_alto")])
+
+```
+
+
+
+
+
+
+
+
