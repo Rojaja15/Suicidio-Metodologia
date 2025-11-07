@@ -148,8 +148,324 @@ tabla_anova
 ```
 
 
+# ANOVA
+
+```{r}
+
+df_final <- read_csv("Data/df_final.csv")
+
+```
+```{r}
+
+num_vars <- df_final %>% 
+  select(where(is.numeric)) %>% 
+  names()
+
+```
+
+```{r}
+
+library(car)
+library(broom)
+library(WRS2)
+
+diagnostico_anova <- function(df, grupo = "cluster") {
+  
+  # asegurar que grupo es factor
+  df[[grupo]] <- as.factor(df[[grupo]])
+  
+  # seleccionar solo variables numéricas
+  variables <- df %>% select(where(is.numeric)) %>% names()
+  
+  resultados <- data.frame(
+    variable = character(),
+    normalidad = character(),
+    homocedasticidad = character(),
+    metodo_recomendado = character()
+  )
+  
+  for (var in variables) {
+    
+    # saltar variables constantes (sin varianza)
+    if (length(unique(df[[var]])) < 2) next
+    
+    formula <- as.formula(paste(var, "~", grupo))
+    
+    modelo <- tryCatch(
+      aov(formula, data = df),
+      error = function(e) NULL
+    )
+    
+    if (is.null(modelo)) next  # si aov falla, pasar a la siguiente
+    
+    # Shapiro test (normalidad de residuales)
+    shapiro <- tryCatch(
+      shapiro.test(residuals(modelo)),
+      error = function(e) list(p.value = NA)
+    )
+    
+    normal <- ifelse(!is.na(shapiro$p.value) && shapiro$p.value > 0.05, "Sí", "No")
+    
+    # Levene (homogeneidad de varianzas)
+    lev <- tryCatch(
+      leveneTest(df[[var]] ~ df[[grupo]]),
+      error = function(e) NULL
+    )
+    
+    if (!is.null(lev)) {
+      homo <- ifelse(lev$`Pr(>F)`[1] > 0.05, "Sí", "No")
+    } else {
+      homo <- "No"
+    }
+    
+    # decisión
+    if (homo == "Sí" & normal == "Sí") {
+      metodo <- "ANOVA clásico"
+    } else if (homo == "No" & normal == "Sí") {
+      metodo <- "Mínimos cuadrados ponderados"
+    } else {
+      metodo <- "ANOVA robusto"
+    }
+    
+    # guardar fila
+    resultados <- rbind(
+      resultados,
+      data.frame(
+        variable = var,
+        normalidad = normal,
+        homocedasticidad = homo,
+        metodo_recomendado = metodo
+      )
+    )
+  }
+  
+  return(resultados)
+}
 
 
+```
 
 
+```{r}
+
+tabla_recomendaciones <- diagnostico_anova(df_final)
+tabla_recomendaciones
+
+```
+
+## Anova clasico
+
+```{r}
+
+anova_clasico <- function(df, var, grupo = "cluster") {
+  formula <- as.formula(paste(var, "~", grupo))
+  modelo <- aov(formula, data = df)
+  broom::tidy(modelo)
+}
+
+```
+
+## Minimos cuadrados ponderados
+
+```{r}
+
+anova_mcp <- function(df, var, grupo = "cluster") {
+  formula <- as.formula(paste(var, "~", grupo))
+  w <- 1 / (abs(df[[var]] - mean(df[[var]], na.rm = TRUE)) + 1e-6)
+  modelo <- lm(formula, data = df, weights = w)
+  broom::tidy(anova(modelo))
+}
+
+```
+
+## Anova Robusto
+
+```{r}
+
+anova_robusto <- function(df, var, grupo = "cluster") {
+  formula <- as.formula(paste(var, "~", grupo))
+  
+  # Intento ANOVA robusto con trim 0.2
+  res <- tryCatch(
+    WRS2::t1way(formula, data = df, tr = 0.2),
+    error = function(e) NULL
+  )
+  
+  # Si falla, bajar trim a 0.1
+  if (is.null(res)) {
+    res <- tryCatch(
+      WRS2::t1way(formula, data = df, tr = 0.1),
+      error = function(e) NULL
+    )
+  }
+  
+  # Si aún falla → usar Kruskal-Wallis como método no paramétrico
+  if (is.null(res)) {
+    kws <- kruskal.test(formula, data = df)
+    return(data.frame(
+      variable = var,
+      metodo = "Kruskal-Wallis (fallback)",
+      estadistico = kws$statistic,
+      p_value = kws$p.value
+    ))
+  }
+  
+  return(data.frame(
+    variable = var,
+    metodo = "ANOVA robusto",
+    estadistico = res$test,
+    p_value = res$p.value
+  ))
+}
+
+
+```
+
+## Funcion maestra
+
+```{r}
+
+library(WRS2)
+library(broom)
+library(dplyr)
+
+run_anova_segun_diagnostico <- function(df, tabla_recomendaciones, grupo = "cluster") {
+  
+  df[[grupo]] <- as.factor(df[[grupo]])
+  
+  resultados <- lapply(1:nrow(tabla_recomendaciones), function(i) {
+    var <- tabla_recomendaciones$variable[i]
+    metodo <- tabla_recomendaciones$metodo_recomendado[i]
+    formula <- as.formula(paste(var, "~", grupo))
+    
+    p <- NA_real_
+    
+    # ANOVA clásico
+    if (metodo == "ANOVA clásico") {
+      modelo <- tryCatch(aov(formula, data = df), error = function(e) NULL)
+      if (!is.null(modelo)) {
+        p <- summary(modelo)[[1]][["Pr(>F)"]][1]
+      }
+    }
+    
+    # Mínimos cuadrados ponderados
+    if (metodo == "Mínimos cuadrados ponderados") {
+      modelo <- tryCatch(lm(formula, data = df), error = function(e) NULL)
+      if (!is.null(modelo)) {
+        pesos <- 1 / abs(residuals(modelo))
+        pesos[!is.finite(pesos)] <- 0
+        modelo_wls <- tryCatch(lm(formula, data = df, weights = pesos), error = function(e) NULL)
+        if (!is.null(modelo_wls)) {
+          p <- summary(modelo_wls)$coefficients[2, 4]
+        }
+      }
+    }
+    
+    # ANOVA robusto
+    if (metodo == "ANOVA robusto") {
+      rob <- tryCatch(t1way(formula, data = df), error = function(e) NULL)
+      if (!is.null(rob)) {
+        p <- rob$p.value
+      }
+    }
+    
+    tibble(
+      Variable = var,
+      Metodo = metodo,
+      P_value = as.numeric(p)
+    )
+  })
+  
+  bind_rows(resultados)
+}
+
+```
+
+```{r}
+
+resultados_modelos <- run_anova_segun_diagnostico(df_final, tabla_recomendaciones)
+resultados_modelos
+
+```
+```{r}
+
+diagnostico_significancia <- function(resultados) {
+  resultados %>%
+    mutate(
+      Significancia = case_when(
+        is.na(P_value) ~ "NA",
+        P_value < 0.001 ~ "Muy significativo",
+        P_value < 0.01 ~ "Altamente significativo",
+        P_value < 0.05 ~ "Significativo",
+        TRUE ~ "No significativo"
+      )
+    )
+}
+
+
+```
+
+```{r}
+
+resultados_final <- diagnostico_significancia(resultados_modelos)
+resultados_final
+
+```
+
+
+```{r}
+
+chi_cluster <- function(df, var) {
+  df$cluster <- as.factor(df$cluster)
+  
+  tbl <- table(df[[var]], df$cluster)
+  
+  chi <- tryCatch(
+    chisq.test(tbl),
+    error = function(e) chisq.test(tbl, simulate.p.value = TRUE, B = 5000)
+  )
+  
+  p <- chi$p.value
+  
+  significancia <- dplyr::case_when(
+    p < 0.001 ~ "Muy significativo",
+    p < 0.01 ~ "Altamente significativo",
+    p < 0.05 ~ "Significativo",
+    TRUE ~ "No significativo"
+  )
+  
+  tibble::tibble(
+    Variable = var,
+    Metodo = "Chi-cuadrado",
+    P_value = round(p, 4),
+    Significancia = significancia
+  )
+}
+
+
+```
+
+```{r}
+
+library(dplyr)
+
+df_final$cluster <- as.factor(df_final$cluster)
+
+# Detectar variables categoricas
+vars_cat <- df_final %>% 
+  select(where(~ is.factor(.x) | is.character(.x) | n_distinct(.x) <= 10)) %>% 
+  select(-cluster) %>%  # cluster se excluye como variable dependiente
+  names()
+
+vars_cat
+
+```
+
+```{r}
+
+resultados_chi <- bind_rows(lapply(vars_cat, function(v) chi_cluster(df_final, v)))
+
+resultados_chi
+
+```
 
