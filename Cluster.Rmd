@@ -9,6 +9,8 @@
 library(tidyverse)
 library(fastDummies)
 library(FactoMineR)
+
+
 library(factoextra)
 library(cluster)
 library(dendextend)
@@ -669,24 +671,254 @@ df <- read.csv("Data/df.csv")
 
 
 ```{r}
-# Número de clústeres (ajusta si quieres)
-k <- 3
-
-# Vector de clústeres
-clusters_hc <- cutree(hclust_ward, k = k)
-
-# Asignarlo al data frame (como factor)
-df$cluster <- factor(clusters_hc)
-
-df_final <- df
-
-# (Opcional) Ver conteos por clúster
-table(df_escalado$cluster)
+variables_filtradas <- c(
+  "ocultar_emociones", "dificultad_pedir_ayuda", "sin_motivacion", "preocupado",            
+  "sin_proposito", "no_reconocer_logros", "incapaz_solucionar", "intento_autolesion",    
+  "plan_autolesion", "autolesion_fisica", "conduccion_temeraria", "soledad",               
+  "conflicto_familiar", "EIS_Roberts"
+)
 ```
 
 ```{r}
-glimpse(df_final)
+df_cluster <- df_escalado %>%
+  select(all_of(variables_filtradas))
 ```
+
+```{r}
+distancias_hclust <- c("euclidean", "maximum", "manhattan", "canberra", "binary", "minkowski")
+agregaciones_hclust <- c("ward.D", "ward.D2", "single", "complete", "average", "mcquitty", "median", "centroid")
+
+# 2. Data frame para guardar resultados
+resultados_hclust <- data.frame(
+  metodo_distancia = character(),
+  metodo_agregacion = character(),
+  inercia = numeric(),
+  stringsAsFactors = FALSE
+)
+```
+
+
+```{r}
+for (distancia in distancias_hclust) {
+  try({
+    # ----- USA EL DF FILTRADO -----
+    matriz_distancia <- dist(df_cluster, method = distancia) 
+
+    for (agregacion in agregaciones_hclust) {
+      if ((agregacion %in% c("ward.D", "ward.D2", "centroid", "median")) && (distancia != "euclidean")) {
+        next
+      }
+
+      modelo <- hclust(matriz_distancia, method = agregacion)
+      grupos <- cutree(modelo, k = 3) # Asumiendo k=3
+
+      # ----- USA EL DF FILTRADO -----
+      inercia_actual <- inercia_intraclase(df_cluster, grupos)
+
+      resultados_hclust <- resultados_hclust %>%
+        add_row(
+          metodo_distancia = distancia,
+          metodo_agregacion = agregacion,
+          inercia = inercia_actual
+        )
+    }
+  }, silent = TRUE)
+}
+```
+
+```{r}
+mejores_hclust <- resultados_hclust %>% arrange(inercia)
+print("--- Ranking de HCLUST (menor inercia es mejor) ---")
+print(head(mejores_hclust))
+```
+
+```{r}
+dist_ganadora <- mejores_hclust$metodo_distancia[1]
+agregacion_ganadora <- mejores_hclust$metodo_agregacion[1]
+```
+
+```{r}
+# 3. Calcular y visualizar el dendrograma del modelo ganador
+matriz_dist_ganadora <- dist(df_cluster, method = dist_ganadora)
+modelo_ganador <- hclust(matriz_dist_ganadora, method = agregacion_ganadora)
+
+# 4. Crear y colorear el dendrograma (k=3)
+dend_obj <- as.dendrogram(modelo_ganador)
+color_dend <- color_branches(dend_obj, k = 3) # Colorear 3 clústeres
+
+plot(color_dend, 
+     main = paste("Dendrograma (Filtrado) -", dist_ganadora, "+", agregacion_ganadora),
+     leaflab = "none") # Oculta etiquetas de hojas para que sea legible
+```
+
+
+```{r}
+# 1. Calcular la matriz de distancia ganadora (basada en el df filtrado)
+matriz_dist_ganadora <- dist(df_cluster, method = dist_ganadora)
+
+# 2. Calcular el modelo de clustering jerárquico final
+modelo_ganador <- hclust(matriz_dist_ganadora, method = agregacion_ganadora)
+
+# 3. Definir el número de clústeres (k=3)
+k <- 3
+
+# 4. ¡AQUÍ ESTÁ LA CLAVE!
+# Usar cutree() para cortar el árbol y generar el vector de clústeres
+clusters_hc <- cutree(modelo_ganador, k = k)
+
+# 5. (Opcional) Convertir el vector a factor para facilitar análisis futuros
+clusters_hc_factor <- factor(clusters_hc)
+
+
+
+print("Conteo de observaciones por clúster:")
+print(table(clusters_hc_factor))
+```
+
+```{r}
+# --- PASO 0: Asegurarnos de tener los objetos correctos ---
+# Reafirmar las 14 variables seleccionadas (si no lo has hecho ya en esta sesión)
+variables_filtradas <- c(
+  "ocultar_emociones", "dificultad_pedir_ayuda", "sin_motivacion", "preocupado",            
+  "sin_proposito", "no_reconocer_logros", "incapaz_solucionar", "intento_autolesion",    
+  "plan_autolesion", "autolesion_fisica", "conduccion_temeraria", "soledad",               
+  "conflicto_familiar", "EIS_Roberts"
+)
+
+# Recrear df_cluster (si no está en tu entorno actual)
+df_cluster <- df_escalado %>%
+  select(all_of(variables_filtradas))
+
+# Recrear el modelo de clustering jerárquico final (si no está en tu entorno actual)
+# Asume que 'dist_ganadora' y 'agregacion_ganadora' ya están definidos por el código anterior
+matriz_dist_ganadora <- dist(df_cluster, method = dist_ganadora)
+modelo_ganador <- hclust(matriz_dist_ganadora, method = agregacion_ganadora)
+k <- 3 # Número de clústeres
+clusters_hc_factor <- factor(cutree(modelo_ganador, k = k))
+
+# --- PASO 1: Preparar el dataframe para el ACP con la información del clúster ---
+# Es crucial que df_cluster tenga la misma cantidad y orden de filas que clusters_hc_factor
+df_cluster_con_cluster <- df_cluster
+df_cluster_con_cluster$cluster <- clusters_hc_factor
+
+# --- PASO 2: Realizar el ACP sobre las variables filtradas ---
+# Si ya lo tienes hecho como 'acp_filtrado', puedes saltar este paso y usar ese.
+# Si no, lo volvemos a calcular sobre 'df_cluster'
+acp_para_cluster <- prcomp(df_cluster, scale. = FALSE) 
+# NOTA: Usamos 'df_cluster' (sin la columna 'cluster') para calcular el ACP.
+# La columna 'cluster' se usa SOLO para el COLOR en la visualización.
+
+# --- PASO 3: Generar el gráfico de individuos coloreados por clúster ---
+# 1. Definir la paleta de colores personalizada
+colores_clusters <- c("turquoise", "steelblue", "tomato")
+
+# 2. Generar el gráfico de individuos (sin etiquetas) con colores personalizados
+fviz_pca_ind(acp_para_cluster,
+             geom = "point",                           # <--- CAMBIO: Solo muestra puntos, no texto
+             col.ind = df_cluster_con_cluster$cluster, # Colorear por la variable 'cluster'
+             palette = colores_clusters,               # <--- CAMBIO: Paleta personalizada
+             addEllipses = TRUE,                       # Añadir elipses de confianza
+             ellipse.type = "convex",                  
+             legend.title = "Clúster",                 
+             pointsize = 3) +                         # Aumenté un poco el tamaño del punto
+  theme_minimal() +
+  labs(title = "ACP de Individuos (Coloreados por Clúster)") + # Título
+  theme(plot.title = element_text(hjust = 0.5))       # Centrar título
+```
+
+```{r}
+# 1. Paleta de colores (la misma de antes)
+colores_clusters <- c("turquoise", "steelblue", "tomato")
+
+# 2. Generar el biplot (Versión Corregida)
+fviz_pca_biplot(acp_para_cluster,
+                # --- Control de Individuos (Se mantiene igual) ---
+                geom.ind = "point",                         
+                col.ind = df_cluster_con_cluster$cluster,   # Mapeo de color #1 (Discreto)
+                palette = colores_clusters,               # Escala para el mapeo #1
+                pointsize = 2.5,                            
+                alpha.ind = 0.6,                            
+                
+                # --- Control de Variables (¡AQUÍ EL CAMBIO!) ---
+                col.var = "grey40",  # <--- Asignamos un color fijo, no un mapeo
+                repel = TRUE,                               
+                
+                # --- Opciones Generales ---
+                addEllipses = TRUE,                         
+                ellipse.type = "convex",
+                legend.title = "Clúster",
+                title = "Biplot ACP (Individuos por Clúster y Variables)") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+# Análisis factorial de datos mixtos
+
+```{r}
+vars_admin_excluir <- c("fecha", "dia", "provincia", "canton", "grupo_wem")
+df_para_afc <- df %>%
+  select(-all_of(vars_admin_excluir)) %>%
+  select(where(is.character) | where(is.factor)) %>%
+  mutate(across(everything(), as.factor))
+```
+
+```{r}
+# 1. Correr el AFC (igual que antes)
+afc_borrador <- MCA(df_para_afc, ncp = 5, graph = FALSE)
+
+# 2. Extraer la calidad de representación (cos2) (igual que antes)
+var_results_afc <- get_mca_var(afc_borrador)
+
+# 3. Sumar el cos2 de las variables en las primeras 5 dimensiones (igual que antes)
+cos2_sum_afc <- rowSums(var_results_afc$cos2[, 1:5])
+
+# 4. Define un umbral (igual que antes)
+umbral_afc <- 0.3 
+
+# 5. Obtener el vector de dummies (igual que antes)
+vars_cat_fuertes_DUMMIES <- names(cos2_sum_afc[cos2_sum_afc > umbral_afc])
+
+# 6. ¡AQUÍ ESTÁ LA CORRECCIÓN!
+# Usamos sub("_.+$", ...) para quitar el PRIMER guion bajo y todo lo que sigue
+vars_cat_fuertes_ORIGINALES <- unique(sub("_.+$", "", vars_cat_fuertes_DUMMIES))
+```
+
+```{r}
+vars_num_fuertes <- c(
+  "ocultar_emociones", "dificultad_pedir_ayuda", "sin_motivacion", "preocupado",            
+  "sin_proposito", "no_reconocer_logros", "incapaz_solucionar", "intento_autolesion",    
+  "plan_autolesion", "autolesion_fisica", "conduccion_temeraria", "soledad",               
+  "conflicto_familiar", "EIS_Roberts"
+)
+
+# 2. Crear el dataframe final para el FAMD (Este código ahora funcionará)
+df_para_famd <- df %>%
+  select(
+    all_of(vars_num_fuertes),           # El grupo numérico fuerte
+    all_of(vars_cat_fuertes_ORIGINALES) # El grupo categórico fuerte (limpio)
+  ) %>%
+  mutate(across(all_of(vars_cat_fuertes_ORIGINALES), as.factor)) # Asegura que sean factores
+```
+
+```{r}
+vars_num_fuertes <- c(
+  "ocultar_emociones", "dificultad_pedir_ayuda", "sin_motivacion", "preocupado",            
+  "sin_proposito", "no_reconocer_logros", "incapaz_solucionar", "intento_autolesion",    
+  "plan_autolesion", "autolesion_fisica", "conduccion_temeraria", "soledad",               
+  "conflicto_familiar", "EIS_Roberts"
+)
+
+# 2. Crear el dataframe final para el FAMD
+df_para_famd <- df %>%
+  select(
+    all_of(vars_num_fuertes),  # El grupo numérico fuerte
+    all_of(vars_cat_fuertes)   # El grupo categórico fuerte
+  ) %>%
+  mutate(across(all_of(vars_cat_fuertes), as.factor)) # Asegura que sean factores
+```
+
+
+# Datos Guardados
 
 ```{r}
 write.csv(df_final, "Data/df_final.csv", row.names = FALSE)

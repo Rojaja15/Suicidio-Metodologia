@@ -241,7 +241,7 @@ fviz_pca_biplot(modelo_ACP,
 
 ### Modelo con solo variables numericas y EIS
 
-```{r}
+```{r, fig.witdh=25}
 
 # 2. Vector de variables con los NOMBRES CORRECTOS
 variables_seleccionadas <- c(
@@ -357,4 +357,44 @@ fviz_nbclust(df_escalado,
 
 ```
 
+# Elegir las mejores variables
+
+```{r}
+var_results <- get_pca_var(resultado_acp)
+```
+
+```{r}
+cos2_dims_1_2 <- var_results$cos2[, 1] + var_results$cos2[, 2]
+umbral <- 0.4
+```
+
+```{r}
+variables_fuertes <- names(cos2_dims_1_2[cos2_dims_1_2 > umbral])
+```
+
+```{r}
+print(paste("Variables seleccionadas:", length(variables_fuertes)))
+print(variables_fuertes)
+```
+
+```{r}
+df_filtrado <- df_seleccionado[, variables_fuertes]
+
+# 7. Volver a correr el ACP (prcomp)
+acp_filtrado <- prcomp(df_filtrado, scale. = FALSE)
+```
+
+```{r}
+summary(acp_filtrado)
+```
+```{r}
+fviz_eig(acp_filtrado, addlabels = TRUE)
+```
+
+```{r}
+fviz_pca_var(acp_filtrado,
+             col.var = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE)
+```
 
