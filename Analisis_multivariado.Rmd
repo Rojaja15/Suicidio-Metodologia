@@ -71,24 +71,24 @@ options(tibble.width = Inf)
 
 ```{r}
 df_escalado <- read.csv("Data/df_escalado.csv")
+df <- read.csv("Data/df.csv")
 ```
 
 
 ```{r}
 
-cor_matrix = cor(numeric_vars, use = "pairwise.complete.obs")
+#cor_matrix = cor(numeric_vars, use = "pairwise.complete.obs")
 
-ggcorrplot(cor_matrix,
-           hc.order = T,
-           type = "lower",
-           lab = F,
-           tl.cex = 6,   # tamaño del texto
-           tl.srt = 45,  # rotar etiquetas
-           outline.col = "white"
-           ) +
-  labs(title = "Matrix de correlaciones") +
-  theme(plot.title = element_text(hjust = 0.5))
-
+#ggcorrplot(cor_matrix,
+#           hc.order = T,
+#           type = "lower",
+#           lab = F,
+#           tl.cex = 6,   # tamaño del texto
+#           tl.srt = 45,  # rotar etiquetas
+#           outline.col = "white"
+#           ) +
+#  labs(title = "Matrix de correlaciones") +
+#  theme(plot.title = element_text(hjust = 0.5))
 ```
 
 Funcion para analisis bivariado
@@ -193,11 +193,10 @@ for (cat_var in vars_cat) {
 ### Modelo con todas las variables
 
 ```{r}
-
-modelo_ACP <- PCA(df_escalado,   #se corre el modelo con PCA
-              scale.unit = FALSE,    #Escalar los datos
-              ncp = 3,           #Número de componentes principales
-              graph = FALSE)
+modelo_ACP <- PCA(df_escalado,#se corre el modelo con PCA
+                    scale.unit = FALSE, #Escalar los datos
+                     ncp = 3,#Número de componentes principales
+                      graph = FALSE)
 
 ```
 
@@ -206,11 +205,11 @@ modelo_ACP <- PCA(df_escalado,   #se corre el modelo con PCA
 ```{r}
 
 fviz_pca_ind(X = modelo_ACP, pointsize = 3,
-             pointshape = 21,
-             axes = c(1,3), #Primeras dos componentes
-             select.ind = list(cos2 = 0.1),
-             alpha.ind = 0.8,
-             fill = "#FF8C32", repel = TRUE)
+              pointshape = 21,
+              axes = c(1,3), #Primeras dos componentes
+              select.ind = list(cos2 = 0.1),
+              alpha.ind = 0.8,
+              fill = "#FF8C32", repel = TRUE)
 
 ```
 
@@ -397,4 +396,80 @@ fviz_pca_var(acp_filtrado,
              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
              repel = TRUE)
 ```
+
+# ACM
+
+Seleccionar las variables categóricas.
+
+```{r}
+# 1. Preparar datos
+
+# Vector con las variables categóricas que NO queremos incluir en el ACM
+variables_a_quitar <- c(
+  "escolaridad", "orientacion_sexual", "provincia", "grupo", "canton", 
+  "grupo_wem", "fecha", "dia", "EIS_Cat", "ocupacion"
+)
+
+# Filtramos el vector 'vars_cat' (que definiste en tu sección de bivariados)
+# Nos quedamos solo con las variables que NO están en la lista 'variables_a_quitar'
+vars_cat_filtradas <- vars_cat[!(vars_cat %in% variables_a_quitar)]
+```
+
+```{r}
+# 2. Crear el dataframe para el ACM usando la lista filtrada
+df_categorico <- df %>% 
+  select(all_of(vars_cat_filtradas)) %>%  # <-- Usamos la lista filtrada aquí
+  mutate(across(everything(), as.factor)) %>%
+  na.omit() # Asegúrate de manejar los NAs
+
+# 3. Correr el modelo ACM
+# (El resto de tu código de ACM sigue exactamente igual...)
+modelo_acm <- MCA(df_categorico, ncp = 5, graph = FALSE)
+
+# 4. Ver la inercia explicada
+fviz_eig(modelo_acm, addlabels = TRUE, title = "ACM - Gráfico de Sedimentación")
+```
+
+```{r}
+fviz_contrib(modelo_acm, 
+             choice = "var", 
+             axes = c(1, 2),
+             top = 20,
+             ggtheme = theme_minimal()) +
+  labs(title = "Contribución de Variables Categóricas a Dim 1 y 2") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+vars_categoricas_fuertes <- c(
+  "ruptura_reciente_Si",
+  "medidas_cautelares_Si",
+  "crisis_pareja_actual_Si",
+  "crisis_pareja_actual_No",
+  "casado",                   # <-- Corregido
+  "medicamento_psiquiatrico_Si",
+  "ruptura_reciente_No",
+  "estado_civil_Viudo",       # <-- Corregido
+  "separado"                  # <-- Corregido
+)
+```
+
+```{r}
+# 2. Variables numéricas (del PCA)
+#    (Este vector ya lo tienes de tu paso de PCA)
+vars_numericas_fuertes <- names(df_filtrado)
+
+# 3. Combinar ambos vectores
+variables_finales <- c(vars_numericas_fuertes, vars_categoricas_fuertes)
+
+# 4. Crear el df_filtrado_final
+#    Este comando ahora SÍ funcionará
+df_filtrado_final <- df_escalado %>%
+  select(all_of(variables_finales))
+```
+
+```{r}
+str(df_escalado)
+```
+
 
