@@ -75,79 +75,6 @@ head(datos_crudos)
 
 ```
 
-
-# ANOVA
-
-Una vez creado los clústers, se crea una columna con el clústers correspondiente al `df` y se utiliza como nuevo factor de agrupación y se hacen los anova correspondientes.|
-
-```{r}
-
-df_num <- df %>%
-  select(where(is.numeric)) %>%
-  na.omit()      # opcional, elimina filas con NA
-
-```
-
-```{r}
-
-set.seed(123)
-k <- 3  # Número de clusters
-clust <- kmeans(df_num, centers = k)
-
-df$cluster <- as.factor(clust$cluster)
-
-```
-
-```{r}
-
-# Seleccionar variables numéricas
-num_vars <- df %>% select(where(is.numeric)) %>% names()
-
-resultados_anova <- list()
-
-for (var in num_vars) {
-  formula <- as.formula(paste(var, "~ cluster"))
-  modelo <- aov(formula, data = df)
-
-  resultados_anova[[var]] <- summary(modelo)
-  cat("\n\n============================================\n")
-  cat("ANOVA para:", var, "\n")
-  print(summary(modelo))
-}
-
-```
-
-```{r}
-
-for (var in num_vars) {
-  print(
-    ggplot(df, aes(x = cluster, y = !!sym(var), fill = cluster)) +
-      geom_boxplot(alpha = 0.7) +
-      labs(title = paste("Boxplot de", var, "por clúster"),
-           x = "Clúster",
-           y = var) +
-      theme_minimal()
-  )
-}
-
-```
-
-```{r}
-
-tabla_anova <- data.frame()
-
-for (var in num_vars) {
-  fm <- as.formula(paste(var, "~ cluster"))
-  modelo <- aov(fm, data = df)
-  tidy_result <- tidy(modelo) %>% mutate(variable = var)
-  tabla_anova <- rbind(tabla_anova, tidy_result)
-}
-
-tabla_anova
-
-```
-
-
 # ANOVA
 
 ```{r}
@@ -412,6 +339,17 @@ resultados_final
 
 ```
 
+```{r}
+
+resultados_significativos <- resultados_final %>%
+  filter(Significancia != "No significativo",
+         !is.na(P_value))  # opcional, para quitar NAs si existieran
+
+resultados_significativos
+
+
+```
+
 
 ```{r}
 
@@ -468,4 +406,17 @@ resultados_chi <- bind_rows(lapply(vars_cat, function(v) chi_cluster(df_final, v
 resultados_chi
 
 ```
+
+```{r}
+
+chi_significativas <- resultados_chi %>%
+  filter(Significancia != "No significativo",
+         !is.na(P_value))   # para evitar filas vacías
+
+chi_significativas
+
+```
+
+
+
 

@@ -9,8 +9,6 @@
 library(tidyverse)
 library(fastDummies)
 library(FactoMineR)
-
-
 library(factoextra)
 library(cluster)
 library(dendextend)
@@ -304,24 +302,22 @@ display_html(py$grafico_html_str)
 
 ```{r}
 
-df <- df %>%
+df_escalado <- df_escalado %>%
   mutate(
     EIS_Cat = case_when(
-      EIS_Roberts <= 5          ~ "Bajo",
+      EIS_Roberts <= 5 ~ "Bajo",
       EIS_Roberts >= 6 & EIS_Roberts <= 8 ~ "Medio",
-      EIS_Roberts >= 9          ~ "Alto",
-      TRUE                      ~ NA_character_ # Manejo de casos inesperados (como NAs)
+      EIS_Roberts >= 9 ~ "Alto",
+      TRUE ~ NA_character_
     )
   )
 
 ```
 
-
 ```{r}
 
-df_categoricas <- df[, c("medicamento_psiquiatrico", "discapacidad_fisica",
-                         "suicidio_familiar","ruptura_reciente", "crisis_pareja_actual",
-                         "medidas_cautelares","estado_civil","EIS_Cat")]
+df_categoricas = df_escalado[, c("medicamento_psiquiatrico", "discapacidad_fisica", "suicidio_familiar","ruptura_reciente", "crisis_pareja_actual", "medidas_cautelares","estado_civil","EIS_Cat")]
+
 
 ```
 
