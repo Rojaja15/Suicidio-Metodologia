@@ -407,3 +407,16 @@ resultados_chi
 
 ```
 
+```{r}
+
+chi_significativas <- resultados_chi %>%
+  filter(Significancia != "No significativo",
+         !is.na(P_value))   # para evitar filas vacías
+
+chi_significativas
+
+```
+
+
+
+
