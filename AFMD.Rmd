@@ -1,0 +1,276 @@
+# Cluster
+
+# Limpieza
+
+## Librerias
+
+```{r}
+
+library(tidyverse)
+library(fastDummies)
+library(FactoMineR)
+library(factoextra)
+library(cluster)
+library(dendextend)
+library(caret)
+library(reticulate)
+library(htmltools)
+library(IRdisplay)
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+library(psych)
+library(ggcorrplot)
+library(janitor)
+library(summarytools)
+library(broom)
+library(readxl)
+library(cowplot)
+library(reticulate)
+
+```
+
+## Funciones
+
+```{r}
+
+inercia_intraclase <- function(datos, grupos) {
+  # Combina los datos y los grupos en una sola tabla
+  tabla <- cbind(datos, grupos)
+
+  # Calcula los centroides (puntos medios) de cada grupo
+  centroides <- lapply(unique(grupos), function(id_grupo) {
+    subconjunto <- subset(tabla, grupos == id_grupo)
+    apply(subconjunto[, 1:(ncol(subconjunto)-1)], 2, mean)
+  })
+
+  # Calcula la suma de las distancias al cuadrado de cada punto a su centroide
+  suma_cuadrados <- sum(sapply(unique(grupos), function(id_grupo) {
+    subconjunto <- subset(tabla, grupos == id_grupo, select = -grupos)
+    centroide_actual <- centroides[[id_grupo]]
+
+    # Resta el centroide a cada punto y calcula la suma de cuadrados
+    sum(sweep(subconjunto, 2, centroide_actual, "-")^2)
+  }))
+
+  return(suma_cuadrados)
+}
+
+```
+
+```{r}
+
+options(tibble.width = Inf)
+
+```
+
+```{r}
+df <- read_csv("Data/df.csv")
+```
+
+# Limpieza
+
+```{r}
+# 1. Definir las variables que quieres eliminar
+vars_para_quitar <- c(
+  "fecha", 
+  "provincia", 
+  "canton", 
+  "grupo_wem", 
+  "dia", "ocupacion",
+  "escolaridad","estado_civil",
+  "EIS_Cat", 
+  "roberts_pensado_muerte",
+  "roberts_mejor_sin_mi",
+  "roberts_pensado_matarme",
+  "roberts_plan_suicida",
+  "orientacion_sexual"
+)
+```
+
+```{r}
+# 2. Preparar el dataframe para FAMD (con la corrección)
+df_famd <- df %>%
+  
+  # Quitar las columnas especificadas
+  select(-all_of(vars_para_quitar)) %>%
+  
+  # Convertir todas las columnas de texto (chr) a factores (factor)
+  mutate_if(is.character, as.factor) %>%
+  
+  # Eliminar filas con cualquier valor faltante (NA)
+  na.omit() %>%
+  
+  # --- INICIO DE LA CORRECCIÓN ---
+  
+  # 1. Eliminar niveles de factores que ya no existen
+  droplevels() %>% 
+  
+  # 2. Convertir de 'tibble' a 'data.frame'
+  as.data.frame()
+
+glimpse(df_famd)
+```
+
+# Modelo
+
+```{r}
+# 1. Ejecutar el modelo FAMD
+#    Usamos el dataframe 'df_famd' que acabamos de crear
+modelo_famd <- FAMD(df_famd, 
+                    ncp = 10,       # Número de componentes/dimensiones a calcular
+                    graph = FALSE)  # No mostrar gráficos automáticamente
+
+# 2. Ver un resumen de los resultados
+#    Esto nos muestra los "eigenvalues" (cuánta varianza explica cada dimensión)
+print(modelo_famd)
+```
+
+## Gráfico de sedimentación
+
+```{r}
+# 1. Gráfico de Sedimentación (Scree Plot)
+fviz_eig(modelo_famd, 
+         addlabels = TRUE, 
+         ncp = 10, # Muestra las primeras 10 dimensiones
+         ggtheme = theme_minimal()) +
+  labs(title = "Gráfico de Sedimentación - FAMD",
+       y = "% de varianza explicada")
+```
+
+## Contribución de las variables
+
+```{r}
+# 1a. Extraer datos de contribución
+contrib_num <- modelo_famd$quanti.var$contrib %>%
+  as.data.frame() %>%
+  # Sumar la contribución a las Dimensiones 1 y 2
+  mutate(contrib_total = Dim.1 + Dim.2) %>%
+  # Quedarnos con el nombre de la variable
+  tibble::rownames_to_column(var = "variable") %>%
+  # Ordenar de mayor a menor
+  arrange(desc(contrib_total)) %>%
+  # Convertir la variable a factor para ordenar el gráfico
+  mutate(variable = factor(variable, levels = variable)) %>%
+  # Tomar el top 10
+  slice_head(n = 10)
+
+# 1b. Calcular la contribución promedio (línea roja)
+#     (100 / número de variables numéricas)
+promedio_num <- 100 / nrow(modelo_famd$quanti.var$contrib)
+
+# 1c. Graficar con ggplot
+ggplot(contrib_num, aes(x = variable, y = contrib_total)) +
+  geom_col(fill = "steelblue") +
+  # Línea roja punteada del promedio
+  geom_hline(yintercept = promedio_num, linetype = "dashed", color = "red") +
+  labs(title = "Contribución de Variables Numéricas (Dim 1 & 2)",
+       y = "Contribución (%)",
+       x = "Variable") +
+  theme_minimal() +
+  # Rotar etiquetas del eje X
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# --- 2. Gráfico para Variables CATEGÓRICAS ---
+
+# 2a. Extraer datos de contribución
+contrib_cat <- modelo_famd$quali.var$contrib %>%
+  as.data.frame() %>%
+  # Sumar la contribución a las Dimensiones 1 y 2
+  mutate(contrib_total = Dim.1 + Dim.2) %>%
+  tibble::rownames_to_column(var = "variable") %>%
+  arrange(desc(contrib_total)) %>%
+  mutate(variable = factor(variable, levels = variable)) %>%
+  slice_head(n = 10)
+
+# 2b. Calcular la contribución promedio (línea roja)
+#     (100 / número de variables categóricas)
+promedio_cat <- 100 / nrow(modelo_famd$quali.var$contrib)
+
+# 2c. Graficar con ggplot
+ggplot(contrib_cat, aes(x = variable, y = contrib_total)) +
+  geom_col(fill = "steelblue") +
+  geom_hline(yintercept = promedio_cat, linetype = "dashed", color = "red") +
+  labs(title = "Contribución de Variables Categóricas (Dim 1 & 2)",
+       y = "Contribución (%)",
+       x = "Variable") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## Biplot
+
+```{r}
+# 3. Gráfico de Variables (Biplot)
+fviz_famd_var(modelo_famd, 
+              repel = TRUE, # Evita que las etiquetas se superpongan
+              col.var = "contrib", # Colorea por contribución
+              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+              ggtheme = theme_minimal()) +
+  labs(title = "Biplot de Variables - FAMD")
+```
+
+
+# HCFAMD
+
+```{r}
+# 1. Ejecutar el Clúster Jerárquico sobre el modelo FAMD
+#    nb.clust = -1  <- Esto le pide al algoritmo que sugiera el
+#                      número óptimo de clústeres (basado en la inercia).
+#    (Si prefieres forzar 3 clústeres, pones nb.clust = 3)
+
+cluster_resultado <- HCPC(modelo_famd, 
+                          nb.clust = -1,    # Dejar que el algoritmo sugiera
+                          graph = FALSE)  # No mostrar gráficos aún
+
+# 2. Ver un resumen de los resultados
+#    (Te dirá cuántos clústeres sugirió)
+print(cluster_resultado)
+```
+
+```{r}
+# --- A. Ver el Dendrograma (el "árbol") ---
+#    Te mostrará el árbol con la partición sugerida
+fviz_dend(cluster_resultado, 
+          cex = 0.7, 
+          palette = "jco", 
+          rect = TRUE, rect_fill = TRUE,
+          rect_border = "jco", 
+          labels_track_height = 0.8) +
+  labs(title = "Dendrograma del Clúster (HCPC)")
+```
+
+```{r}
+fviz_cluster(cluster_resultado,
+             geom = "point",           # <-- AÑADE ESTA LÍNEA
+             show.clust.cent = TRUE,
+             palette = "jco",
+             ggtheme = theme_minimal(),
+             main = "Plano Factorial con Clústeres")
+```
+
+# DF final
+
+```{r}
+cluster_vector <- cluster_resultado$data.clust$clust
+
+df_final <- df
+
+df_final$cluster <- as.factor(cluster_vector)
+```
+
+```{r}
+glimpse(df_final)
+```
+
+
+# Datos Guardados
+
+```{r}
+write.csv(df_final, "Data/df_final.csv", row.names = FALSE)
+```
+

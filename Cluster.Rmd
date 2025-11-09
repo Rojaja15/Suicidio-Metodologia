@@ -83,6 +83,43 @@ head(datos_crudos)
 df_escalado <- read.csv("Data/df_escalado.csv")
 ```
 
+## Selección de variables
+
+```{r}
+# 1. Vector para las variables numéricas (nombres exactos)
+vars_numericas_exactas <- c(
+  "ocultar_emociones", "dificultad_pedir_ayuda", "sin_motivacion", "preocupado",
+  "sin_proposito", "no_reconocer_logros", "incapaz_solucionar", "intento_autolesion",
+  "plan_autolesion", "autolesion_fisica", "conduccion_temeraria", "soledad",
+  "conflicto_familiar", "EIS_Roberts"
+)
+
+# 2. Vector para las dummies de 'estado_civil' (que no tienen prefijo)
+vars_estado_civil_dummies <- c(
+  "casado", "divorciado", "separado", "soltero", "union_libre", "estado_civil_Viudo"
+)
+
+
+# 3. Usar select() para combinar todo
+# NOTA: Uso df_escalado, que es el dataframe del que mostraste la estructura.
+df_selecto <- df_escalado %>%
+  select(
+    
+    # --- Sección A: Variables con nombre exacto ---
+    all_of(vars_numericas_exactas),
+    all_of(vars_estado_civil_dummies),
+    
+    # --- Sección B: Variables Dummies con Prefijo ---
+    # (El guion bajo "_" al final es clave)
+    
+    starts_with("ruptura_reciente_"),
+    starts_with("medidas_cautelares_"),
+    starts_with("crisis_pareja_actual_"),
+    starts_with("medicamento_psiquiatrico_") # Ojo: sin acento
+  )
+```
+
+
 # Cluster Jerarquico
 
 Hclust: Grupos mas homogeneos
@@ -114,7 +151,7 @@ resultados_hclust <- data.frame(
 # 5. Bucle para probar cada combinación
 for (distancia in distancias_hclust) {
   try({
-    matriz_distancia <- dist(df_escalado, method = distancia)
+    matriz_distancia <- dist(df_selecto, method = distancia)
 
     for (agregacion in agregaciones_hclust) {
       # Evitar combinaciones inválidas
@@ -127,7 +164,7 @@ for (distancia in distancias_hclust) {
       grupos <- cutree(modelo, k = 3)
 
       # Calcular la inercia y guardarla
-      inercia_actual <- inercia_intraclase(df_escalado, grupos)
+      inercia_actual <- inercia_intraclase(df_selecto, grupos)
 
       resultados_hclust <- resultados_hclust %>%
         add_row(
@@ -191,7 +228,7 @@ Crear **ciclo for**
 
 for (distancia in distancias_agnes) {
   try({
-    matriz_distancia <- dist(df_escalado, method = distancia)
+    matriz_distancia <- dist(df_selecto, method = distancia)
 
     for (agregacion in agregaciones_agnes) {
       # Evitar combinaciones inválidas
@@ -297,79 +334,6 @@ display_html(py$grafico_html_str)
 
 ```
 
-
-## AFC
-
-```{r}
-
-df_escalado <- df_escalado %>%
-  mutate(
-    EIS_Cat = case_when(
-      EIS_Roberts <= 5 ~ "Bajo",
-      EIS_Roberts >= 6 & EIS_Roberts <= 8 ~ "Medio",
-      EIS_Roberts >= 9 ~ "Alto",
-      TRUE ~ NA_character_
-    )
-  )
-
-```
-
-```{r}
-
-df_categoricas = df_escalado[, c("medicamento_psiquiatrico", "discapacidad_fisica", "suicidio_familiar","ruptura_reciente", "crisis_pareja_actual", "medidas_cautelares","estado_civil","EIS_Cat")]
-
-
-```
-
-```{r}
-
-columnas_a_factor <- c(
-  "medicamento_psiquiatrico_No", "medicamento_psiquiatrico_Sí",
-  "discapacidad_fisica_No", "discapacidad_fisica_Sí",
-  "suicidio_familiar_No", "suicidio_familiar_Sí",
-  "ruptura_reciente_No", "ruptura_reciente_Sí",
-  "crisis_pareja_actual_No", "crisis_pareja_actual_Sí",
-  "medidas_cautelares_No",
-  "posgrado", "sec_completa", "sec_incompleta", "tecnico",
-  "u_completo", "u_incompleto",
-  "casado", "divorciado", "separado", "soltero", "union_libre",
-  "desempleado", "asalariado", "independiente",
-  "heterosexual", "sexualidad_otra",
-  "EIS_alto", "EIS_medio", "EIS_bajo"
-)
-
-# 2. Extraer las columnas y convertirlas a factor en un nuevo data frame
-# Asegúrate de que los nombres en el vector coincidan exactamente con tu data frame
-df_factores <- df_escalado %>%
-  select(all_of(columnas_a_factor)) %>%
-  mutate(across(everything(), as.factor))
-
-# 3. (Opcional) Verificar que la conversión fue exitosa
-# Deberías ver que todas las columnas en df_factores son de tipo 'Factor'
-str(df_factores)
-
-```
-
-```{r}
-
-AFC <- MCA(df_categoricas, graph = FALSE)
-
-```
-
-```{r}
-
-fviz_screeplot(AFC, addlabels = TRUE, ylim = c(0, 50))
-
-```
-
-```{r}
-
-fviz_mca_var(AFC, repel = TRUE,
-             cex.var = 6,   # Aumenta el tamaño de los puntos
-             labelsize = 2,
-             ggtheme = theme_minimal())
-
-```
 
 ## Misc
 
@@ -661,99 +625,14 @@ print( cor_df_ordenado[order(cor_df_ordenado$EIS_medio, decreasing = TRUE) , c("
 
 ## Creación de los clústers finales
 
-```{r}
-df <- read.csv("Data/df.csv")
-```
-
-
-```{r}
-variables_filtradas <- c(
-  "ocultar_emociones", "dificultad_pedir_ayuda", "sin_motivacion", "preocupado",            
-  "sin_proposito", "no_reconocer_logros", "incapaz_solucionar", "intento_autolesion",    
-  "plan_autolesion", "autolesion_fisica", "conduccion_temeraria", "soledad",               
-  "conflicto_familiar", "EIS_Roberts"
-)
-```
-
-```{r}
-df_cluster <- df_escalado %>%
-  select(all_of(variables_filtradas))
-```
-
-```{r}
-distancias_hclust <- c("euclidean", "maximum", "manhattan", "canberra", "binary", "minkowski")
-agregaciones_hclust <- c("ward.D", "ward.D2", "single", "complete", "average", "mcquitty", "median", "centroid")
-
-# 2. Data frame para guardar resultados
-resultados_hclust <- data.frame(
-  metodo_distancia = character(),
-  metodo_agregacion = character(),
-  inercia = numeric(),
-  stringsAsFactors = FALSE
-)
-```
-
-
-```{r}
-for (distancia in distancias_hclust) {
-  try({
-    # ----- USA EL DF FILTRADO -----
-    matriz_distancia <- dist(df_cluster, method = distancia) 
-
-    for (agregacion in agregaciones_hclust) {
-      if ((agregacion %in% c("ward.D", "ward.D2", "centroid", "median")) && (distancia != "euclidean")) {
-        next
-      }
-
-      modelo <- hclust(matriz_distancia, method = agregacion)
-      grupos <- cutree(modelo, k = 3) # Asumiendo k=3
-
-      # ----- USA EL DF FILTRADO -----
-      inercia_actual <- inercia_intraclase(df_cluster, grupos)
-
-      resultados_hclust <- resultados_hclust %>%
-        add_row(
-          metodo_distancia = distancia,
-          metodo_agregacion = agregacion,
-          inercia = inercia_actual
-        )
-    }
-  }, silent = TRUE)
-}
-```
-
-```{r}
-mejores_hclust <- resultados_hclust %>% arrange(inercia)
-print("--- Ranking de HCLUST (menor inercia es mejor) ---")
-print(head(mejores_hclust))
-```
-
-```{r}
-dist_ganadora <- mejores_hclust$metodo_distancia[1]
-agregacion_ganadora <- mejores_hclust$metodo_agregacion[1]
-```
-
-```{r}
-# 3. Calcular y visualizar el dendrograma del modelo ganador
-matriz_dist_ganadora <- dist(df_cluster, method = dist_ganadora)
-modelo_ganador <- hclust(matriz_dist_ganadora, method = agregacion_ganadora)
-
-# 4. Crear y colorear el dendrograma (k=3)
-dend_obj <- as.dendrogram(modelo_ganador)
-color_dend <- color_branches(dend_obj, k = 3) # Colorear 3 clústeres
-
-plot(color_dend, 
-     main = paste("Dendrograma (Filtrado) -", dist_ganadora, "+", agregacion_ganadora),
-     leaflab = "none") # Oculta etiquetas de hojas para que sea legible
-```
 
 
 ```{r}
 # 1. Calcular la matriz de distancia ganadora (basada en el df filtrado)
-matriz_dist_ganadora <- dist(df_cluster, method = dist_ganadora)
+matriz_dist_ganadora <- dist(df_selecto, method = "euclidean")
 
 # 2. Calcular el modelo de clustering jerárquico final
-modelo_ganador <- hclust(matriz_dist_ganadora, method = agregacion_ganadora)
+modelo_ganador <- hclust(matriz_dist_ganadora, method = "ward.D")
 
 # 3. Definir el número de clústeres (k=3)
 k <- 3
@@ -772,35 +651,19 @@ print(table(clusters_hc_factor))
 ```
 
 ```{r}
-# --- PASO 0: Asegurarnos de tener los objetos correctos ---
-# Reafirmar las 14 variables seleccionadas (si no lo has hecho ya en esta sesión)
-variables_filtradas <- c(
-  "ocultar_emociones", "dificultad_pedir_ayuda", "sin_motivacion", "preocupado",            
-  "sin_proposito", "no_reconocer_logros", "incapaz_solucionar", "intento_autolesion",    
-  "plan_autolesion", "autolesion_fisica", "conduccion_temeraria", "soledad",               
-  "conflicto_familiar", "EIS_Roberts"
-)
-
-# Recrear df_cluster (si no está en tu entorno actual)
-df_cluster <- df_escalado %>%
-  select(all_of(variables_filtradas))
-
-# Recrear el modelo de clustering jerárquico final (si no está en tu entorno actual)
-# Asume que 'dist_ganadora' y 'agregacion_ganadora' ya están definidos por el código anterior
-matriz_dist_ganadora <- dist(df_cluster, method = dist_ganadora)
-modelo_ganador <- hclust(matriz_dist_ganadora, method = agregacion_ganadora)
-k <- 3 # Número de clústeres
-clusters_hc_factor <- factor(cutree(modelo_ganador, k = k))
-
 # --- PASO 1: Preparar el dataframe para el ACP con la información del clúster ---
 # Es crucial que df_cluster tenga la misma cantidad y orden de filas que clusters_hc_factor
-df_cluster_con_cluster <- df_cluster
-df_cluster_con_cluster$cluster <- clusters_hc_factor
+df_cluster <- df_escalado
+df_cluster$cluster <- clusters_hc_factor
+
+df_numericas_cluster <- df_cluster %>%
+  select(where(is.numeric))
+
 
 # --- PASO 2: Realizar el ACP sobre las variables filtradas ---
 # Si ya lo tienes hecho como 'acp_filtrado', puedes saltar este paso y usar ese.
 # Si no, lo volvemos a calcular sobre 'df_cluster'
-acp_para_cluster <- prcomp(df_cluster, scale. = FALSE) 
+acp_para_cluster <- prcomp(df_numericas_cluster, scale. = FALSE) 
 # NOTA: Usamos 'df_cluster' (sin la columna 'cluster') para calcular el ACP.
 # La columna 'cluster' se usa SOLO para el COLOR en la visualización.
 
@@ -811,7 +674,7 @@ colores_clusters <- c("turquoise", "steelblue", "tomato")
 # 2. Generar el gráfico de individuos (sin etiquetas) con colores personalizados
 fviz_pca_ind(acp_para_cluster,
              geom = "point",                           # <--- CAMBIO: Solo muestra puntos, no texto
-             col.ind = df_cluster_con_cluster$cluster, # Colorear por la variable 'cluster'
+             col.ind = df_cluster$cluster, # Colorear por la variable 'cluster'
              palette = colores_clusters,               # <--- CAMBIO: Paleta personalizada
              addEllipses = TRUE,                       # Añadir elipses de confianza
              ellipse.type = "convex",                  
@@ -830,7 +693,7 @@ colores_clusters <- c("turquoise", "steelblue", "tomato")
 fviz_pca_biplot(acp_para_cluster,
                 # --- Control de Individuos (Se mantiene igual) ---
                 geom.ind = "point",                         
-                col.ind = df_cluster_con_cluster$cluster,   # Mapeo de color #1 (Discreto)
+                col.ind = df_cluster$cluster,   # Mapeo de color #1 (Discreto)
                 palette = colores_clusters,               # Escala para el mapeo #1
                 pointsize = 2.5,                            
                 alpha.ind = 0.6,                            
@@ -846,71 +709,6 @@ fviz_pca_biplot(acp_para_cluster,
                 title = "Biplot ACP (Individuos por Clúster y Variables)") +
   theme_minimal() +
   theme(plot.title = element_text(hjust = 0.5))
-```
-
-# Análisis factorial de datos mixtos
-
-```{r}
-vars_admin_excluir <- c("fecha", "dia", "provincia", "canton", "grupo_wem")
-df_para_afc <- df %>%
-  select(-all_of(vars_admin_excluir)) %>%
-  select(where(is.character) | where(is.factor)) %>%
-  mutate(across(everything(), as.factor))
-```
-
-```{r}
-# 1. Correr el AFC (igual que antes)
-afc_borrador <- MCA(df_para_afc, ncp = 5, graph = FALSE)
-
-# 2. Extraer la calidad de representación (cos2) (igual que antes)
-var_results_afc <- get_mca_var(afc_borrador)
-
-# 3. Sumar el cos2 de las variables en las primeras 5 dimensiones (igual que antes)
-cos2_sum_afc <- rowSums(var_results_afc$cos2[, 1:5])
-
-# 4. Define un umbral (igual que antes)
-umbral_afc <- 0.3 
-
-# 5. Obtener el vector de dummies (igual que antes)
-vars_cat_fuertes_DUMMIES <- names(cos2_sum_afc[cos2_sum_afc > umbral_afc])
-
-# 6. ¡AQUÍ ESTÁ LA CORRECCIÓN!
-# Usamos sub("_.+$", ...) para quitar el PRIMER guion bajo y todo lo que sigue
-vars_cat_fuertes_ORIGINALES <- unique(sub("_.+$", "", vars_cat_fuertes_DUMMIES))
-```
-
-```{r}
-vars_num_fuertes <- c(
-  "ocultar_emociones", "dificultad_pedir_ayuda", "sin_motivacion", "preocupado",            
-  "sin_proposito", "no_reconocer_logros", "incapaz_solucionar", "intento_autolesion",    
-  "plan_autolesion", "autolesion_fisica", "conduccion_temeraria", "soledad",               
-  "conflicto_familiar", "EIS_Roberts"
-)
-
-# 2. Crear el dataframe final para el FAMD (Este código ahora funcionará)
-df_para_famd <- df %>%
-  select(
-    all_of(vars_num_fuertes),           # El grupo numérico fuerte
-    all_of(vars_cat_fuertes_ORIGINALES) # El grupo categórico fuerte (limpio)
-  ) %>%
-  mutate(across(all_of(vars_cat_fuertes_ORIGINALES), as.factor)) # Asegura que sean factores
-```
-
-```{r}
-vars_num_fuertes <- c(
-  "ocultar_emociones", "dificultad_pedir_ayuda", "sin_motivacion", "preocupado",            
-  "sin_proposito", "no_reconocer_logros", "incapaz_solucionar", "intento_autolesion",    
-  "plan_autolesion", "autolesion_fisica", "conduccion_temeraria", "soledad",               
-  "conflicto_familiar", "EIS_Roberts"
-)
-
-# 2. Crear el dataframe final para el FAMD
-df_para_famd <- df %>%
-  select(
-    all_of(vars_num_fuertes),  # El grupo numérico fuerte
-    all_of(vars_cat_fuertes)   # El grupo categórico fuerte
-  ) %>%
-  mutate(across(all_of(vars_cat_fuertes), as.factor)) # Asegura que sean factores
 ```
 
 
