@@ -422,6 +422,71 @@ chi_significativas
 
 ```
 
+### Grafico de violin
+
+```{r}
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# Asegurar que cluster sea factor
+df_final$cluster <- as.factor(df_final$cluster)
+
+# Extraer variables numéricas
+vars_num <- df_final %>% 
+  select(where(is.numeric)) %>% 
+  names()
+
+# Asegurar eliminación por si cluster estaba en num
+vars_num <- vars_num[vars_num != "cluster"]
+
+# Formato largo
+df_long <- df_final %>%
+  select(all_of(vars_num), cluster) %>%
+  pivot_longer(
+    cols = all_of(vars_num),
+    names_to = "variable",
+    values_to = "valor"
+  )
+
+# Graficos violín
+ggplot(df_long, aes(x = cluster, y = valor, fill = cluster)) +
+  geom_violin(trim = FALSE, alpha = 0.7) +
+  geom_jitter(width = 0.15, alpha = 0.3) +
+  stat_summary(fun = median, geom = "point", size = 2, color = "red") +
+  facet_wrap(~ variable, scales = "free_y") +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Distribución de variables numéricas por cluster",
+    x = "Cluster",
+    y = "Valor"
+  ) +
+  theme(legend.position = "none")
+
+
+
+```
+```{r}
+
+library(ggplot2)
+library(purrr)
+
+walk(vars_num, function(v){
+  p <- ggplot(df_final, aes(x = cluster, y = .data[[v]], fill = cluster)) +
+    geom_violin(trim = FALSE, alpha = 0.6) +
+    geom_boxplot(width = 0.15, outlier.shape = NA, alpha = 0.3) +
+    stat_summary(fun = median, geom = "point", size = 2, color = "black") +
+    labs(title = v, x = "Cluster", y = "Valor") +
+    theme_minimal(base_size = 14) +
+    theme(legend.position = "none")
+  
+  print(p)
+})
+
+
+```
+
 
 
 
